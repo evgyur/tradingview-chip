@@ -1,0 +1,6 @@
+interface:
+  display_name: "TradingView Chip"
+  short_description: "Operate TradingView through a verified local MCP workflow"
+  default_prompt: "Use $tradingview-chip to inspect the intended TradingView chart, establish its exact target and layout, and complete the requested operation with independent readback."
+policy:
+  allow_implicit_invocation: true
