@@ -76,7 +76,7 @@ function failedCopyOpenFixture() {
     checkpoint: async (key, value) => { events.push(['checkpoint', value.stage]); checkpoints.set(key, structuredClone(value)); },
     assertLayout: async () => {},
     poll: async (read, predicate) => { const result = await read(); if (!predicate(result)) throw new ToolError('TIMEOUT', 'Fixture timeout'); return result; },
-    browser: { listTargets: async () => [{ id: 'source-tab', url: 'https://www.tradingview.com/chart/Source01/' }],
+    browser: { isDesktop: async () => true, listTargets: async () => [{ id: 'source-tab', url: 'https://www.tradingview.com/chart/Source01/' }],
       openTarget: async () => { events.push(['open', [...checkpoints.values()][0]?.copy_layout_id]); throw new ToolError('CDP_HTTP_ERROR', 'HTTP 500'); } },
     callPage: async (_fn, { operation }) => {
       if (operation === 'snapshot') return { layout_id: 'Source01', unsaved_changes: false, panes: [] };
@@ -91,19 +91,20 @@ function failedCopyOpenFixture() {
 test('created-copy opening failures retain the exact ID and same-key retries never clone again', async () => {
   const f = failedCopyOpenFixture();
   const args = { name: 'Copy', idempotency_key: 'copy-open-failure' };
-  const assertReceipt = error => {
+  const assertReceipt = expectedError => error => {
     assert.equal(error.code, 'COPY_CREATED_UNVERIFIED');
     assert.equal(error.details.layout_id, 'Copied02'); assert.equal(error.details.created, true);
     assert.equal(error.details.source_layout_id, 'Source01'); assert.equal(error.details.chart_verified, false);
-    assert.equal(error.details.verification_error, 'CDP_HTTP_ERROR'); assert.equal(error.details.retry_with_same_key, true);
+    assert.equal(error.details.verification_error, expectedError); assert.equal(error.details.retry_with_same_key, true);
     return true;
   };
-  await assert.rejects(copyLayout(args, f.ctx), assertReceipt);
+  await assert.rejects(copyLayout(args, f.ctx), assertReceipt('CDP_HTTP_ERROR'));
   assert.equal(f.state.copies, 1);
   assert.equal([...f.checkpoints.values()][0].copy_layout_id, 'Copied02');
   assert.deepEqual(f.events.find(event => event[0] === 'open'), ['open', 'Copied02']);
-  await assert.rejects(copyLayout(args, f.ctx), assertReceipt);
+  await assert.rejects(copyLayout(args, f.ctx), assertReceipt('TIMEOUT'));
   assert.equal(f.state.copies, 1);
+  assert.equal(f.events.filter(event => event[0] === 'open').length, 1);
 });
 
 test('lost-acknowledgement reconciliation checkpoints the discovered ID before opening', async () => {

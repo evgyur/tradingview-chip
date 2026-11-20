@@ -34,4 +34,4 @@ After any uncertain mutation, reconcile exact IDs and reuse its idempotency key.
 
 ## Current boundaries
 
-The project has 189 registered tools, with 105 available in read-only mode. Selected Desktop 3.5.1 chart/Pine/replay/template/screenshot operations were verified; every tool was not live-tested. Alert creation returned `invalid_request`, fresh Desktop copy-tab opening returned CDP HTTP 500, and full copy fidelity is unverified. Preserve these limits until new evidence resolves them. Broker execution, cookie extraction, remote updaters and external Pine AI uploads are outside this workflow.
+The project has 189 registered tools, with 105 available in read-only mode. Selected Desktop 3.5.1 chart/Pine/replay/template/screenshot operations were verified; every tool was not live-tested. Alert creation returned `invalid_request`, a three-pane Desktop copy passed the single-tab, loaded-chart, saved-layout and drawing-inventory checks, but full drawing-payload fidelity remains unverified. Preserve these limits until new evidence resolves them. Broker execution, cookie extraction, remote updaters and external Pine AI uploads are outside this workflow.

@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-11-20T17:32:10.815Z",
-  "source_sha256": "5e590905d8103c0c6dd6986294a5b455d35ae4941bf0e702b8684e95457c78c4",
+  "timestamp": "2026-11-20T18:20:36.371Z",
+  "source_sha256": "309a0a317058bd05cba202e24acba20cd41e9dc1978d4c5ccc6c9bcb5d263f16",
   "source_unchanged_during_tests": true,
   "environment": {
     "node": "24.16.0",
@@ -18,7 +18,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 2.5513
+      "duration_ms": 2.0841
     },
     {
       "name": "Tool errors use isError, while JSON-RPC errors retain protocol codes",
@@ -26,7 +26,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.5157
+      "duration_ms": 1.2893
     },
     {
       "name": "Plaintext secrets are redacted from successful results and result text remains JSON",
@@ -34,7 +34,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.3767
+      "duration_ms": 0.3075
     },
     {
       "name": "UTF-8 newline stdio handles split multibyte messages and emits only protocol JSON",
@@ -42,7 +42,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.8353
+      "duration_ms": 1.5614
     },
     {
       "name": "JSON-RPC batch and nonobject messages are rejected",
@@ -50,7 +50,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1812
+      "duration_ms": 0.1611
     },
     {
       "name": "Resource and prompt lookups reject inherited names and non-string identifiers",
@@ -58,7 +58,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1676
+      "duration_ms": 0.1554
     },
     {
       "name": "The complete delivered tool catalog is discoverable through MCP pagination without omissions",
@@ -66,7 +66,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 22.1567
+      "duration_ms": 20.6125
     },
     {
       "name": "Cancellation aborts a running tool through its signal",
@@ -74,7 +74,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.4873
+      "duration_ms": 1.4718
     },
     {
       "name": "Loopback HTTP requires a strong token and rejects wildcard binding",
@@ -82,7 +82,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.4404
+      "duration_ms": 0.5138
     },
     {
       "name": "Actual HTTP handler enforces authentication, Origin, Host, path and method before MCP execution",
@@ -90,7 +90,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.261
+      "duration_ms": 1.4016
     },
     {
       "name": "CDP endpoint rejects remote hosts, DNS aliases, credentials, paths and redirect-shaped query",
@@ -98,7 +98,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2438
+      "duration_ms": 0.1889
     },
     {
       "name": "CDP websocket discovery cannot redirect to a remote host or unrelated local port",
@@ -106,7 +106,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.271
+      "duration_ms": 0.2129
     },
     {
       "name": "TradingView target origin must be exact HTTPS; public URLs remove unneeded secret query/fragment",
@@ -114,7 +114,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.3426
+      "duration_ms": 0.2578
     },
     {
       "name": "Caller JavaScript and credential/storage accessors are prohibited",
@@ -122,7 +122,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.4938
+      "duration_ms": 0.4653
     },
     {
       "name": "Page wrapper preserves hostile text as data and does not execute it",
@@ -130,7 +130,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 4.7803
+      "duration_ms": 4.1979
     },
     {
       "name": "Page fetch blocks third-party, localhost, credentials and forbidden auth headers before network",
@@ -138,7 +138,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 3.9984
+      "duration_ms": 3.5186
     },
     {
       "name": "Browser authentication stays implicit and no cookie canary reaches Node transport",
@@ -146,7 +146,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.7241
+      "duration_ms": 1.4601
     },
     {
       "name": "CDP cookie/network/remote object methods are not in the callable allowlist",
@@ -154,7 +154,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1731
+      "duration_ms": 0.1566
     },
     {
       "name": "Redirects remain forbidden for allowed page fetch requests",
@@ -162,7 +162,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.2594
+      "duration_ms": 1.0063
     },
     {
       "name": "Origin is checked again inside the live page after discovery",
@@ -170,7 +170,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.5515
+      "duration_ms": 1.0242
     },
     {
       "name": "Webhook validation rejects local/private endpoints and does not send a test request",
@@ -178,7 +178,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2941
+      "duration_ms": 0.2592
     },
     {
       "name": "Known secrets are redacted in maps, free text, query parameters and provider key formats",
@@ -186,7 +186,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1031
+      "duration_ms": 0.1004
     },
     {
       "name": "MCP schemas reject prototype pollution and unknown arguments",
@@ -194,7 +194,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1098
+      "duration_ms": 0.1059
     },
     {
       "name": "Mutation cannot use a URL layout ID when native widget identity is absent",
@@ -202,7 +202,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 1.55
+      "duration_ms": 1.4216
     },
     {
       "name": "A changed native layout blocks the write and log contains no input body",
@@ -210,7 +210,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2672
+      "duration_ms": 0.4144
     },
     {
       "name": "A logging failure preserves a completed action receipt instead of inviting duplicate retries",
@@ -218,7 +218,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2061
+      "duration_ms": 0.2078
     },
     {
       "name": "Owner-only exports stay confined and CSV formula cells are escaped",
@@ -226,7 +226,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 3.4835
+      "duration_ms": 2.7944
     },
     {
       "name": "Storage refuses symlinked export directories",
@@ -234,7 +234,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 2.8782
+      "duration_ms": 1.8197
     },
     {
       "name": "Internal storage area names cannot traverse or address an absolute sibling directory",
@@ -242,7 +242,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.8543
+      "duration_ms": 0.412
     },
     {
       "name": "Quoted JSON and source-like secret fields are redacted without breaking JSON",
@@ -250,7 +250,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2463
+      "duration_ms": 0.1485
     },
     {
       "name": "Cookie-export name/value records redact credential values recursively",
@@ -258,7 +258,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2146
+      "duration_ms": 0.1225
     },
     {
       "name": "Browser launcher inherits platform settings and excludes unrelated secrets and injection flags",
@@ -266,7 +266,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2053
+      "duration_ms": 0.1276
     },
     {
       "name": "Launcher refuses missing, duplicate or unknown options before choosing a profile",
@@ -274,7 +274,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.1955
+      "duration_ms": 0.1345
     },
     {
       "name": "Session diagnostics and layout metadata discard arbitrary URL query secrets and fragments",
@@ -282,7 +282,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 6.6421
+      "duration_ms": 4.2131
     },
     {
       "name": "CSV exports neutralize whitespace-prefixed and numeric-looking formulas and headers",
@@ -290,7 +290,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 2.862
+      "duration_ms": 2.1331
     },
     {
       "name": "Chrome discovery is bounded while streaming and cancels oversized bodies",
@@ -298,7 +298,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 2.1963
+      "duration_ms": 2.7552
     },
     {
       "name": "New-target discovery refuses a non-TradingView response and sanitizes accepted URLs",
@@ -306,7 +306,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.6504
+      "duration_ms": 1.3314
     },
     {
       "name": "A debugger that closes before opening rejects promptly and clears its state",
@@ -314,7 +314,7 @@
       "status": "passed",
       "skipped": false,
       "todo": false,
-      "duration_ms": 0.2661
+      "duration_ms": 0.2906
     }
   ],
   "totals": {

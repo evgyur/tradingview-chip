@@ -12,7 +12,7 @@ The project has automated unit, security, integration, real stdio-process, and r
 
 A successful API-presence check or read does not prove that every mutation works. Review the validation records before relying on a particular workflow. Webhook configuration verification does not prove delivery.
 
-**Current live limitations:** alert creation returned `invalid_request`; the combined copy-and-alert workflow remains unverified live. Desktop rejected opening a new copy tab with CDP HTTP 500. Saved-copy receipts preserve the created ID for reconciliation, and full multi-pane copy fidelity remains unverified. These are separate from the verified chart, Pine, replay, template-list and screenshot operations. See [Desktop results](docs/DESKTOP_VALIDATION_2026-11-20.md) and [browser results](docs/VALIDATION.md).
+**Current live limitations:** alert creation returned `invalid_request`; the combined copy-and-alert workflow remains unverified live. Desktop 3.5.1 now opens a single copied-layout tab through the verified native path. A live three-pane copy passed loaded-chart, saved-layout and saved-drawing-inventory comparisons; full drawing payload fidelity remains unverified. Saved-copy receipts preserve the created ID for reconciliation. These are separate from the verified chart, Pine, replay, template-list and screenshot operations. See [Desktop results](docs/DESKTOP_VALIDATION_2026-11-20.md) and [browser results](docs/VALIDATION.md).
 
 ## What it can do
 

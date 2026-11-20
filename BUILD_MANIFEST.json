@@ -2,11 +2,11 @@
   "project": "tradingview-chip",
   "version": "0.1.0",
   "prepared": "2026-11-20",
-  "runtime_source_sha256": "5e590905d8103c0c6dd6986294a5b455d35ae4941bf0e702b8684e95457c78c4",
+  "runtime_source_sha256": "309a0a317058bd05cba202e24acba20cd41e9dc1978d4c5ccc6c9bcb5d263f16",
   "tests": {
-    "files": 27,
-    "tests": 350,
-    "pass": 350,
+    "files": 30,
+    "tests": 430,
+    "pass": 430,
     "fail": 0,
     "skipped": 0
   },
@@ -24,8 +24,8 @@
     },
     {
       "path": "AGENT_HANDOFF.md",
-      "bytes": 2739,
-      "sha256": "2381ec665bb3e0262571a3d883bf3d57df55391893dae5014a85931c99895121"
+      "bytes": 2807,
+      "sha256": "2f04c9e55015c00cb232ffa97b83d35b66bd8a9932e45af96511fd62dcd6d68f"
     },
     {
       "path": "DEVELOPER_PROMPT.md",
@@ -39,8 +39,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 25420,
-      "sha256": "02734a05532d5b212c11a90a54fb7de3c34478a1bd9e1a4cca53548e53f38223"
+      "bytes": 25540,
+      "sha256": "17f5ee6b55e2243ad119d2dee327dd14af2dd95981811aadece4e16f8d6404b9"
     },
     {
       "path": "SECURITY.md",
@@ -74,13 +74,13 @@
     },
     {
       "path": "docs/DESKTOP_VALIDATION_2026-11-20.md",
-      "bytes": 4681,
-      "sha256": "067f8b844eb4e61878fc26996d133aaf62c459fc0e01e22869b2af95b9bfd2ee"
+      "bytes": 4827,
+      "sha256": "a7b8e5bbc8b15a470814d0916feb6ee8712a738e24ffa23d8a5ce17b0fd0b91f"
     },
     {
       "path": "docs/FEATURES.md",
-      "bytes": 30079,
-      "sha256": "08cc2602f3600336df77246e0ccc6e27fd9a06d9407db6b8755f65d1dfae518e"
+      "bytes": 30132,
+      "sha256": "be7b8d03e9f762412b260ce434ca68f6f6c3f80ae96b791561002fc1fa324405"
     },
     {
       "path": "docs/LIVE_MUTATION_VALIDATION.json",
@@ -109,18 +109,18 @@
     },
     {
       "path": "docs/SECURITY_TEST_RESULTS.json",
-      "bytes": 10009,
-      "sha256": "7d070e17a3744ac6f204ed851753207673d7b0df7e6b6cfce595eb2742368c94"
+      "bytes": 10013,
+      "sha256": "4872dfa10270a00bbef2e351b28378b7bd8fe99470300ac04ec84973bbcd9ac0"
     },
     {
       "path": "docs/TEST_RESULTS.json",
-      "bytes": 89554,
-      "sha256": "7ba1157e38190d264eab52734978932eecc0728e234c77a2bbecf79408d64228"
+      "bytes": 110625,
+      "sha256": "81c7960f432b1dac24ee3ee504abe3127267c251a9b329af0a637db2c132ec3d"
     },
     {
       "path": "docs/TOOLS.json",
-      "bytes": 271759,
-      "sha256": "aef4ef104d6ff6effc52cc35e99f7f4b9255f8e2c1dbdc056d340ddc8cb0137b"
+      "bytes": 271999,
+      "sha256": "49b846b534d11d43b1fc8da37e5d4842443fc10f8391e464efd7a1d024df19f3"
     },
     {
       "path": "docs/UPSTREAMS.json",
@@ -204,8 +204,8 @@
     },
     {
       "path": "skills/tradingview-chip/SKILL.md",
-      "bytes": 6393,
-      "sha256": "eb58d0a6754fed67e7c9352101709edb3a7954d52c58b6cad7260ba8d5ab0582"
+      "bytes": 6573,
+      "sha256": "776b5a062deeb5f41c55a711c6e6436f702e08ca22d249c03c8fd68c56dff539"
     },
     {
       "path": "skills/tradingview-chip/agents/openai.yaml",
@@ -234,8 +234,8 @@
     },
     {
       "path": "src/core/browser.mjs",
-      "bytes": 10601,
-      "sha256": "9e01136e70167842a02c62635dbb7708b826bd518520cb9d4aa77bd2156cfd42"
+      "bytes": 13528,
+      "sha256": "17635f5c5564097bad783ed01147f530aa2a4255ee462035355eff7179535625"
     },
     {
       "path": "src/core/context.mjs",
@@ -299,8 +299,8 @@
     },
     {
       "path": "src/features/browser-tools.mjs",
-      "bytes": 7942,
-      "sha256": "58cd19e91e636c4d078eac7f7544b5cb9145b1170ffe2efb07c0a94772332624"
+      "bytes": 8115,
+      "sha256": "6d56c19d1ee56488eaf1e0a153bdad912870f156af9ac3c34b18d5c082f1e0f8"
     },
     {
       "path": "src/features/chart.mjs",
@@ -329,8 +329,8 @@
     },
     {
       "path": "src/features/layouts.mjs",
-      "bytes": 33428,
-      "sha256": "a9fff3339301c17c32c84770b07d61f950e0440dffbebac887a8f8e7f4d9a6cc"
+      "bytes": 62218,
+      "sha256": "0a0ae80a23e8d5b606984c58625f1d003bfcdba0ab93c3858ecb307e219fda04"
     },
     {
       "path": "src/features/market.mjs",
@@ -408,6 +408,11 @@
       "sha256": "3c1394cbcc21bbcee221fa832c80b59912bdeb149278f64292a55a098b1a7f79"
     },
     {
+      "path": "tests/browser-open-tool.test.mjs",
+      "bytes": 769,
+      "sha256": "39a8dd260402391767356f584bac2b97c4454e295b10a5e3543a32d913c6cd49"
+    },
+    {
       "path": "tests/community.test.mjs",
       "bytes": 7471,
       "sha256": "cc79acf349dda0f7759a2e0b4f6719d5bb9e69c6614fbfb0955590c1e95a174f"
@@ -416,6 +421,11 @@
       "path": "tests/desktop-launcher.test.mjs",
       "bytes": 4182,
       "sha256": "6219aaecf09f47d4bff8f5b9c571056a48df993490841e16c438afc4e25e8673"
+    },
+    {
+      "path": "tests/desktop-tab-open.test.mjs",
+      "bytes": 7518,
+      "sha256": "e0fa8eb6f07ec8f72012f9b6f0d9ff5442dcb9c4f06d445fbe815940abe292da"
     },
     {
       "path": "tests/drawing-visibility.test.mjs",
@@ -434,8 +444,8 @@
     },
     {
       "path": "tests/integration-workflow.test.mjs",
-      "bytes": 10958,
-      "sha256": "bb8873805ed65a988c9af948a4dcb6351d9bb1a61dcec90e0f7bde5c8c6cd522"
+      "bytes": 11093,
+      "sha256": "f179ed1829bf7f13fed0de7368956ab0e602a52bb391692fb1869267008531fc"
     },
     {
       "path": "tests/layout-alert-workflow.test.mjs",
@@ -449,8 +459,13 @@
     },
     {
       "path": "tests/layout-pane-snapshot.test.mjs",
-      "bytes": 7660,
-      "sha256": "5f63bdc869cc3e63b19c53ba73d3b433fe53e6f7c1699a8878e1524f2e3eef5d"
+      "bytes": 7805,
+      "sha256": "e07ac21b124f15080b4102f4d0fd1dcf16e96611b7308a33f5e1d7efc76c96d9"
+    },
+    {
+      "path": "tests/layout-saved-fidelity.test.mjs",
+      "bytes": 49969,
+      "sha256": "62805ff4cc47c220160876958ff20b1d79d59ef3c724507129ff1b8458603b70"
     },
     {
       "path": "tests/market.test.mjs",

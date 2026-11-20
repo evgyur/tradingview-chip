@@ -1783,7 +1783,7 @@
   },
   {
     "name": "browser_open_tab",
-    "description": "Open an HTTPS TradingView chart URL in the dedicated Chrome session. Returns the new exact target ID; opening a saved URL does not create an independent layout.",
+    "description": "Open an HTTPS TradingView chart URL in the connected session. Desktop requires the exact source_target_id of an existing chart. Returns the new target ID; opening a saved URL does not create an independent layout.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1792,6 +1792,11 @@
           "description": "HTTPS TradingView chart URL",
           "maxLength": 5000,
           "format": "uri"
+        },
+        "source_target_id": {
+          "type": "string",
+          "description": "Exact existing TradingView chart target, required for Desktop",
+          "maxLength": 5000
         },
         "target_id": {
           "type": "string",

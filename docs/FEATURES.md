@@ -29,7 +29,7 @@ Generic UI mutation tools are available only with `TV_ENABLE_GENERIC_UI=1`. Read
 | `browser_close_tab` | Yes | Required | Close this exact TradingView tab and verify the target disappeared. Save work first. |
 | `browser_list_tabs` | No | — | List only eligible TradingView Superchart browser targets. Never lists unrelated tabs or reads browser cookies. |
 | `browser_navigate` | Yes | Required | Navigate this exact chart tab to a saved TradingView chart URL and verify the destination widget ID. Refuses navigation away from an observed dirty chart. |
-| `browser_open_tab` | Yes | — | Open an HTTPS TradingView chart URL in the dedicated Chrome session. Returns the new exact target ID; opening a saved URL does not create an independent layout. |
+| `browser_open_tab` | Yes | — | Open an HTTPS TradingView chart URL in the connected session. Desktop requires the exact source_target_id of an existing chart. Returns the new target ID; opening a saved URL does not create an independent layout. |
 | `browser_screenshot` | No | — | Capture the current TradingView tab as a PNG image. May contain chart/account information; images are returned to the caller and are not uploaded to an external service. |
 | `chart_get_session` | No | — | Read the native trading-session ID and any symbol-advertised sessions such as regular and extended. |
 | `chart_get_state` | No | — | Read the selected chart, saved layout ID and all registered study IDs. |

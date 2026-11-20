@@ -1,5 +1,6 @@
 import { ToolError, checkAbort } from './errors.mjs';
 import { assertCdpEndpoint, assertDebuggerUrl, assertTradingViewUrl, assertFixedFunction, publicChartUrl, TV_REQUEST_HOSTS, TV_HOSTS } from './security.mjs';
+import { assertDesktopVersion } from './launcher.mjs';
 
 const ALLOWED_CDP = new Set([
   'Runtime.evaluate','Runtime.enable','Page.enable','Page.navigate','Page.captureScreenshot',
@@ -137,8 +138,44 @@ export class BrowserManager {
     if(result.result?.type==='undefined')return null;
     return result.result?.value??null;
   }
-  async openTarget(url){
-    assertTradingViewUrl(url,{chartOnly:true});
+  async isDesktop(){
+    const version=await this.request('/json/version');
+    const userAgent=version?.['User-Agent'];
+    if(typeof userAgent==='string'&&/(?:^|\s)(?:TVDesktop|TradingView)\//.test(userAgent)){
+      assertDesktopVersion(version,this.endpoint);
+      return true;
+    }
+    return false;
+  }
+  async openTarget(url,{sourceTargetId,timeoutMs=15000}={}){
+    url=assertTradingViewUrl(url,{chartOnly:true});
+    if(await this.isDesktop()){
+      if(typeof sourceTargetId!=='string'||!sourceTargetId)throw new ToolError('SOURCE_TARGET_REQUIRED','Opening a Desktop tab requires an exact existing TradingView source target.');
+      if(!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>30000)throw new ToolError('INVALID_ARGUMENT','Desktop tab verification timeout must be between 100 and 30000 milliseconds.');
+      await this.resolveTarget(sourceTargetId);
+      const before=await this.listTargets(),knownIds=new Set(before.map(item=>item.id));
+      if(!knownIds.has(sourceTargetId))throw new ToolError('TARGET_NOT_FOUND','The Desktop source target disappeared before opening a tab.');
+      let submissionError;
+      try{
+        await this.evaluate(sourceTargetId,function({url}){window.open(url,'_blank');return {submitted:true};},{url});
+      }catch(error){submissionError=error.code??'PAGE_CALL_FAILED';}
+      // Electron handles window.open through its native tab navigation. Never
+      // try /json/new first: an error could arrive after a tab was created.
+      const deadline=Date.now()+timeoutMs;
+      let previousId=null;
+      do{
+        let targets;
+        try{targets=await this.listTargets();}
+        catch{throw new ToolError('TAB_CREATE_UNVERIFIED','Desktop tab opening was submitted but discovery failed. Reconcile the target list before retrying.',{mutation_attempted:true,source_target_id:sourceTargetId});}
+        const fresh=targets.filter(item=>!knownIds.has(item.id));
+        if(fresh.length>1)throw new ToolError('TAB_CREATE_AMBIGUOUS','Multiple new TradingView targets appeared. Reconcile the target list before retrying.',{mutation_attempted:true,source_target_id:sourceTargetId,new_target_count:fresh.length});
+        const target=fresh.length===1&&new URL(fresh[0].url).href===url?fresh[0]:null;
+        if(target&&target.id===previousId)return {target_id:target.id,id:target.id,url:publicChartUrl(target.url),verified:true,opened_via:'desktop_native_window_open',source_target_id:sourceTargetId};
+        previousId=target?.id??null;
+        if(Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,Math.min(250,deadline-Date.now())));
+      }while(Date.now()<deadline);
+      throw new ToolError('TAB_CREATE_UNVERIFIED','Desktop tab opening was submitted but exactly one matching new target did not remain visible. Reconcile before retrying.',{mutation_attempted:true,source_target_id:sourceTargetId,...(submissionError?{submission_error:submissionError}:{})});
+    }
     const target=await this.request('/json/new?'+encodeURIComponent(url),{method:'PUT'});
     if(!target?.id)throw new ToolError('TAB_CREATE_FAILED','Chrome did not return a new tab ID.');
     return {target_id:target.id,id:target.id,url:publicChartUrl(target.url)};

@@ -86,6 +86,7 @@ function multiPageFixture() {
   const fetchImpl = async (url, options) => {
     const parsed = new URL(url); assert.equal(parsed.origin, 'http://127.0.0.1:9222'); assert.equal(options.credentials, 'omit');
     if (parsed.pathname === '/json/list') return new Response(JSON.stringify(targets));
+    if (parsed.pathname === '/json/version') return new Response(JSON.stringify({ Browser: 'Fixture/1', 'Protocol-Version': '1.3' }));
     throw new Error(`Unexpected CDP discovery path ${parsed.pathname}`);
   };
   const browser = new BrowserManager({ endpoint: 'http://127.0.0.1:9222', fetchImpl, WebSocketImpl: Socket });

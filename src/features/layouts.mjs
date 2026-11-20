@@ -12,6 +12,25 @@ const schema = (properties = {}, required = []) => ({ type: 'object', properties
 const canonical = value => JSON.stringify(value, (_key, val) => val && typeof val === 'object' && !Array.isArray(val)
   ? Object.fromEntries(Object.keys(val).sort().map(key => [key, val[key]])) : val);
 const digest = value => createHash('sha256').update(canonical(value)).digest('hex');
+const SOURCE_FINGERPRINT_VERSION = 'user-config-v1';
+const DIRECT_CLONE_PROTOCOL = 'desktop-direct-no-autoopen-v1';
+export function sourceConfigurationFingerprint(panes) {
+  const normalized = Array.isArray(panes) ? panes.map(pane => ({ ...pane,
+    studies: Array.isArray(pane.studies) ? pane.studies.map(study => {
+      const viewport = study.viewport_inputs;
+      const valid = study.viewport_inputs_metadata_verified === true && Array.isArray(viewport)
+        && viewport.every(input => ['first_visible_bar_time', 'last_visible_bar_time'].includes(input?.id)
+          && typeof input.value === 'number' && Number.isSafeInteger(input.value))
+        && new Set(viewport.map(input => input.id)).size === viewport.length;
+      return valid ? { ...study, viewport_inputs: viewport.map(input => ({ ...input, value: '[viewport]' })) } : study;
+    }) : pane.studies,
+  })) : panes;
+  return digest(normalized);
+}
+const sourceFingerprintMatch = (record, panes) => !record?.source_fingerprint ? null
+  : record.source_fingerprint === (record.source_fingerprint_version === SOURCE_FINGERPRINT_VERSION ? sourceConfigurationFingerprint(panes) : digest(panes));
+const sourceFingerprintIssue = (record, matches) => record?.source_fingerprint_version === SOURCE_FINGERPRINT_VERSION && matches === false
+  ? 'source changed since clone submission' : 'legacy or missing source fingerprint cannot verify source stability';
 
 export function chartUrl(id) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{6,64}$/.test(id)) throw new ToolError('INVALID_ARGUMENT', 'A saved TradingView layout ID is required.');
@@ -64,6 +83,117 @@ export async function layoutPage({ operation, data = {} }) {
   };
   if (operation === 'get') return current();
   if (operation === 'list') return saved();
+  if (operation === 'saved_fingerprint' || operation === 'compare_saved') {
+    // Keep private saved chart payloads inside the authenticated page. Only
+    // hashes and explicit verification results cross the browser boundary.
+    const canonicalSaved = value => JSON.stringify(value, (_key, val) => val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(Object.keys(val).sort().map(key => [key, val[key]])) : val);
+    const sha = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalSaved(value))))].map(n => n.toString(16).padStart(2, '0')).join('');
+    const object = value => !!value && typeof value === 'object' && !Array.isArray(value);
+    const validUid = value => typeof value === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(value);
+    const validNumber = value => typeof value === 'number' ? Number.isSafeInteger(value) && value > 0
+      : typeof value === 'string' && /^[1-9]\d*$/.test(value);
+    const unavailableInventory = () => ({ available: false, inventory_verified: false, contents_verified: false,
+      reason: 'saved_drawing_inventory_unavailable_or_unverified' });
+    const readInventory = async (uid, savedContent) => {
+      try {
+        const chartId = savedContent.charts[0]?.chartId;
+        if (typeof chartId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(chartId) || typeof api.getChartStorage !== 'function') return unavailableInventory();
+        const storage = await api.getChartStorage();
+        if (typeof storage?.getLayoutDrawingsSizeInfo !== 'function') return unavailableInventory();
+        const dto = await storage.getLayoutDrawingsSizeInfo(uid, chartId);
+        const integer = (value, max) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= max;
+        const exactKeys = (value, keys) => object(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
+        if (!exactKeys(dto, ['charts', 'countSourcesTotal', 'limitBytesTotal', 'sizeBytesTotal']) || !(dto.charts instanceof Map)
+          || dto.charts.size === 0 || dto.charts.size > 100 || !integer(dto.countSourcesTotal, 100000) || dto.countSourcesTotal === 0
+          || !integer(dto.limitBytesTotal, Number.MAX_SAFE_INTEGER) || !integer(dto.sizeBytesTotal, Number.MAX_SAFE_INTEGER)) return unavailableInventory();
+        const charts = []; let count = 0, buckets = 0, bytes = 0;
+        for (const [savedChartId, bySymbol] of dto.charts) {
+          if (typeof savedChartId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(savedChartId) || !(bySymbol instanceof Map) || bySymbol.size === 0 || bySymbol.size > 10000) return unavailableInventory();
+          const symbols = [];
+          for (const [symbol, bucket] of bySymbol) {
+            if (++buckets > 10000 || typeof symbol !== 'string' || symbol.length === 0 || symbol.length > 4096 || /[\u0000-\u001f]/.test(symbol)
+              || !exactKeys(bucket, ['countSources', 'sizeBytes', 'ids']) || !integer(bucket.countSources, 100000) || !integer(bucket.sizeBytes, 512 * 1024 * 1024)
+              || !Array.isArray(bucket.ids) || bucket.ids.length > 100000 || bucket.ids.length !== bucket.countSources
+              || !bucket.ids.every(value => typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/.test(value))
+              || new Set(bucket.ids).size !== bucket.ids.length) return unavailableInventory();
+            count += bucket.countSources; bytes += bucket.sizeBytes;
+            if (count > 100000 || bytes > 512 * 1024 * 1024) return unavailableInventory();
+            symbols.push({ symbol, count: bucket.countSources, bytes: bucket.sizeBytes, ids: [...bucket.ids].sort() });
+          }
+          symbols.sort((a, b) => a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0);
+          charts.push({ chart_id: savedChartId, symbols });
+        }
+        if (count !== dto.countSourcesTotal) return unavailableInventory();
+        charts.sort((a, b) => a.chart_id < b.chart_id ? -1 : a.chart_id > b.chart_id ? 1 : 0);
+        return { available: true, sha256: await sha({ charts, count }), chart_count: charts.length, bucket_count: buckets, source_count: count,
+          contents_verified: false };
+      } catch { return unavailableInventory(); }
+    };
+    const stableInventory = (first, second) => first?.available === true && second?.available === true && canonicalSaved(first) === canonicalSaved(second)
+      ? { ...first, stable_reads_verified: true } : unavailableInventory();
+    const layoutFingerprint = ({ drawings_inventory: ignoredInventory, ...fingerprint }) => fingerprint;
+    const readSaved = async (uid, numericId, name) => {
+      if (!validUid(uid) || !validNumber(numericId) || typeof name !== 'string') throw new Error('SAVED_LAYOUT_IDENTITY_UNVERIFIED');
+      const response = await fetch(`https://www.tradingview.com/chart/${uid}/json/`, { credentials: 'include', redirect: 'error' });
+      if (!response.ok) throw new Error('SAVED_LAYOUT_HTTP_ERROR');
+      if (Number(response.headers?.get?.('content-length')) > 4 * 1024 * 1024) throw new Error('SAVED_LAYOUT_PAYLOAD_LIMIT');
+      const raw = await response.text();
+      if (raw.length > 4 * 1024 * 1024) throw new Error('SAVED_LAYOUT_PAYLOAD_LIMIT');
+      let row, content, studyMeta;
+      try {
+        row = JSON.parse(raw);
+        if (!object(row) || typeof row.content !== 'string' || typeof row.content_study_meta !== 'string') throw new Error();
+        content = JSON.parse(row.content); studyMeta = JSON.parse(row.content_study_meta);
+      } catch { throw new Error('SAVED_LAYOUT_SCHEMA_UNVERIFIED'); }
+      if (row.uid !== uid || !validNumber(row.id) || String(row.id) !== String(numericId) || row.name !== name || !object(content) || content.name !== row.name) throw new Error('SAVED_LAYOUT_IDENTITY_UNVERIFIED');
+      if (!Array.isArray(content.charts) || content.charts.length === 0 || !content.charts.every(object) || !object(studyMeta)) throw new Error('SAVED_LAYOUT_SCHEMA_UNVERIFIED');
+      const { name: ignoredName, ...configuration } = content;
+      return { layout_id: uid, numeric_id: String(row.id),
+        content_sha256: await sha(content), configuration_sha256: await sha(configuration),
+        study_meta_sha256: await sha(studyMeta), pane_count: content.charts.length,
+        drawings_inventory: await readInventory(uid, content) };
+    };
+    const sourceArgs = [data.source_layout_id, data.source_numeric_id, data.source_name];
+    if (operation === 'saved_fingerprint') {
+      const first = await readSaved(...sourceArgs), second = await readSaved(...sourceArgs);
+      if (canonicalSaved(layoutFingerprint(first)) !== canonicalSaved(layoutFingerprint(second))) throw new Error('SAVED_LAYOUT_CHANGED_DURING_READ');
+      return { available: true, ...first, drawings_inventory: stableInventory(first.drawings_inventory, second.drawings_inventory), drawings_covered: false,
+        verification_scope: 'Stable saved layout content and study metadata; separate line-tool drawing state and current unsaved state are not captured.' };
+    }
+    if (data.source_layout_id === data.copy_layout_id || String(data.source_numeric_id) === String(data.copy_numeric_id)) throw new Error('SAVED_LAYOUT_NOT_INDEPENDENT');
+    const copyArgs = [data.copy_layout_id, data.copy_numeric_id, data.copy_name];
+    const [source, destination] = await Promise.all([readSaved(...sourceArgs), readSaved(...copyArgs)]);
+    const [sourceAgain, destinationAgain] = await Promise.all([readSaved(...sourceArgs), readSaved(...copyArgs)]);
+    const sourceStable = canonicalSaved(layoutFingerprint(source)) === canonicalSaved(layoutFingerprint(sourceAgain));
+    const destinationStable = canonicalSaved(layoutFingerprint(destination)) === canonicalSaved(layoutFingerprint(destinationAgain));
+    const stable = sourceStable && destinationStable;
+    source.drawings_inventory = stableInventory(source.drawings_inventory, sourceAgain.drawings_inventory);
+    destination.drawings_inventory = stableInventory(destination.drawings_inventory, destinationAgain.drawings_inventory);
+    const baseline = data.source_baseline;
+    const baselineValid = baseline?.available === true && baseline.layout_id === source.layout_id && baseline.numeric_id === source.numeric_id && /^[a-f0-9]{64}$/.test(baseline.content_sha256 ?? '') && /^[a-f0-9]{64}$/.test(baseline.study_meta_sha256 ?? '');
+    const sourceUnchanged = baselineValid && sourceStable ? baseline.content_sha256 === source.content_sha256 && baseline.study_meta_sha256 === source.study_meta_sha256 : null;
+    const contentEqual = source.configuration_sha256 === destination.configuration_sha256;
+    const metaEqual = source.study_meta_sha256 === destination.study_meta_sha256;
+    const inventoriesAvailable = source.drawings_inventory.available === true && destination.drawings_inventory.available === true;
+    const inventoryEqual = inventoriesAvailable ? source.drawings_inventory.sha256 === destination.drawings_inventory.sha256 : null;
+    const baselineInventory = baseline?.drawings_inventory;
+    const inventorySourceUnchanged = baselineValid && baselineInventory?.available === true && /^[a-f0-9]{64}$/.test(baselineInventory.sha256 ?? '') && source.drawings_inventory.available === true
+      ? baselineInventory.sha256 === source.drawings_inventory.sha256 : null;
+    const inventoryComparison = { available: inventoriesAvailable, inventory_verified: stable && inventoryEqual === true && inventorySourceUnchanged === true,
+      current_saved_inventory_equal: inventoryEqual, source_unchanged_since_baseline: inventorySourceUnchanged,
+      source: source.drawings_inventory, destination: destination.drawings_inventory, contents_verified: false,
+      scope: 'Stable saved drawing inventory counts, per-bucket sizes and exact ID membership only; individual drawing contents are not read or verified. Physical account size and limit totals are not compared.' };
+    return { available: true, saved_configuration_verified: stable && sourceUnchanged === true && contentEqual && metaEqual,
+      current_saved_configuration_equal: stable && contentEqual && metaEqual,
+      stable_reads_verified: stable, source_unchanged_since_baseline: sourceUnchanged,
+      source_stability_unverified: sourceUnchanged === null,
+      content_equal_excluding_root_name: contentEqual, study_metadata_equal: metaEqual,
+      source, destination, excluded_fields: ['content.name'],
+      saved_drawings_inventory_verification: inventoryComparison,
+      drawings_covered: false, full_fidelity_verified: false,
+      verification_scope: 'Saved layout content and study metadata; expected root name checked separately. Separate line-tool drawing state and current unsaved chart state are not covered.' };
+  }
   if (operation === 'snapshot') {
     const result = { ...current(), panes: [], unverified_fields: [] };
     const widgets = collection?.getAll?.();
@@ -93,13 +223,40 @@ export async function layoutPage({ operation, data = {} }) {
         pane.studies = [];
         for (let n = 0; n < studies.length; n++) {
           const study = studies[n];
-          const entry = { name: study.name ?? study.title ?? null, inputs: null, properties: null };
+          const entry = { name: study.name ?? study.title ?? null, inputs: null, properties: null,
+            viewport_inputs: null, viewport_inputs_metadata_verified: null };
           try {
             const handle = facade.getStudyById(study.id);
             entry.inputs = plain(handle.getInputValues());
+            if (Array.isArray(entry.inputs)) {
+              const viewportIds = ['first_visible_bar_time', 'last_visible_bar_time'];
+              const candidates = entry.inputs.filter(input => viewportIds.includes(input?.id));
+              entry.viewport_inputs = [];
+              entry.viewport_inputs_metadata_verified = true;
+              if (candidates.length) {
+                let definitions;
+                try { definitions = handle.getInputsInfo?.(); } catch { /* Unknown metadata must not hide an input. */ }
+                const classified = [];
+                for (const input of candidates) {
+                  const matches = Array.isArray(definitions) ? definitions.filter(info => info?.id === input.id) : [];
+                  const definition = matches.length === 1 ? matches[0] : null;
+                  if (!definition || typeof definition.type !== 'string' || typeof definition.isHidden !== 'boolean' || entry.inputs.filter(item => item?.id === input.id).length !== 1) {
+                    entry.viewport_inputs_metadata_verified = false;
+                  } else if (definition.isHidden === true && definition.type === 'integer') {
+                    if (typeof input.value !== 'number' || !Number.isSafeInteger(input.value)) entry.viewport_inputs_metadata_verified = false;
+                    else classified.push(input);
+                  }
+                }
+                if (entry.viewport_inputs_metadata_verified) {
+                  entry.viewport_inputs = classified;
+                  entry.inputs = entry.inputs.filter(input => !classified.includes(input));
+                } else entry.viewport_inputs = null;
+              }
+            }
             if (typeof handle.getProperties === 'function') entry.properties = plain(handle.getProperties());
           } catch { /* Missing fields are recorded individually below. */ }
           if (entry.inputs === null) result.unverified_fields.push(`panes.${index}.studies.${n}.inputs`);
+          if (entry.viewport_inputs_metadata_verified !== true) result.unverified_fields.push(`panes.${index}.studies.${n}.viewport_inputs_metadata`);
           if (entry.properties === null) result.unverified_fields.push(`panes.${index}.studies.${n}.properties`);
           pane.studies.push(entry);
         }
@@ -108,9 +265,30 @@ export async function layoutPage({ operation, data = {} }) {
         try {
           const shapes = facade.getAllShapes();
           if (!Array.isArray(shapes)) throw new Error('Drawing listing is unavailable.');
-          pane.drawings = shapes.map(shape => {
-            const handle = facade.getShapeById(shape.id);
-            return { name: shape.name, points: plain(handle.getPoints()), properties: plain(handle.getProperties()) };
+          const validNativePoints = value => Array.isArray(value) && value.length > 0 && value.length <= 10000 && value.every(point => point && typeof point === 'object' && !Array.isArray(point)
+            && Object.keys(point).sort().join(',') === 'interval,offset,price,time_t'
+            && ['time_t', 'offset', 'price'].every(key => typeof point[key] === 'number' && Number.isFinite(point[key]))
+            && typeof point.interval === 'string' && point.interval.length > 0);
+          const captures = shapes.map(shape => {
+            const handle = facade.getShapeById(shape.id), source = handle?._source;
+            const capture = { shape, handle, nativePresent: !!source, normalized: null, state: null };
+            let identity = false;
+            try { identity = typeof source?.id === 'function' && source.id() === shape.id; } catch { /* Do not use an unbound source. */ }
+            if (identity) {
+              try { const points = plain(source.normalizedPoints?.()); if (validNativePoints(points)) capture.normalized = points; } catch { /* Entire pane falls back if this representation is incomplete. */ }
+              try { const points = plain(source.state?.()?.points); if (validNativePoints(points)) capture.state = points; } catch { /* Entire pane falls back if this representation is incomplete. */ }
+            }
+            return capture;
+          });
+          const nativeMethod = captures.length && captures.every(item => item.normalized !== null) ? 'normalized'
+            : captures.length && captures.every(item => item.state !== null) ? 'state' : null;
+          pane.drawing_points_representation = nativeMethod ? 'native_normalized' : 'public_time';
+          pane.drawing_points_source = nativeMethod === 'normalized' ? 'normalizedPoints' : nativeMethod === 'state' ? 'state.points' : 'getPoints';
+          if (!nativeMethod && captures.some(item => item.nativePresent)) result.unverified_fields.push(`panes.${index}.drawings.native_points`);
+          pane.drawings = captures.map(({ shape, handle, ...capture }) => {
+            const points = nativeMethod ? capture[nativeMethod] : plain(handle.getPoints());
+            if (!Array.isArray(points)) throw new Error('Drawing points are unavailable.');
+            return { name: shape.name, points, properties: plain(handle.getProperties()) };
           });
         } catch { result.unverified_fields.push(`panes.${index}.drawings`); }
       } else result.unverified_fields.push(`panes.${index}.drawings`);
@@ -119,6 +297,23 @@ export async function layoutPage({ operation, data = {} }) {
     return result;
   }
   if (operation === 'copy') {
+    if (data.desktop_direct === true) {
+      const sourceId = current().layout_id;
+      if (typeof data.name !== 'string' || data.name.length === 0 || data.name.length > 200 || !/^[A-Za-z0-9_-]{6,64}$/.test(data.source_layout_id ?? '') || sourceId !== data.source_layout_id) throw new Error('CLONE_SOURCE_IDENTITY_UNVERIFIED');
+      if (typeof service?.hasChanges !== 'function' || service.hasChanges() !== false) throw new Error('CLONE_SOURCE_NOT_CLEAN');
+      // Desktop's legacy controller launches a delayed tab without awaiting its
+      // clone POST. Submit this exact saved-layout clone directly and leave all
+      // tab creation to the caller after independent saved-ID reconciliation.
+      const response = await fetch(`${location.origin}/charts/${sourceId}/clone/`, { method: 'POST', body: JSON.stringify({ name: data.name }), credentials: 'include', redirect: 'error' });
+      if (!response.ok) throw new Error('CLONE_REQUEST_REJECTED');
+      const returnedLocation = response.headers?.get?.('location');
+      if (typeof returnedLocation !== 'string' || !returnedLocation) throw new Error('CLONE_RESPONSE_UNVERIFIED');
+      let destination;
+      try { destination = new URL(returnedLocation, location.origin); } catch { throw new Error('CLONE_RESPONSE_UNVERIFIED'); }
+      const match = /^\/chart\/([A-Za-z0-9_-]{6,64})\/?$/.exec(destination.pathname);
+      if (destination.origin !== location.origin || destination.username || destination.password || destination.search || destination.hash || !match || match[1] === sourceId) throw new Error('CLONE_RESPONSE_UNVERIFIED');
+      return { submitted: true, copy_layout_id: match[1], transport: 'native_saved_layout_clone' };
+    }
     const controller = service?.getSaveAsController?.();
     if (typeof controller?._actionHandler === 'function') await controller._actionHandler({ newValue: data.name, dialogClose() {} });
     else if (typeof controller?._doCloneCurrentLayout === 'function') await controller._doCloneCurrentLayout(data.name);
@@ -156,6 +351,28 @@ export async function layoutPage({ operation, data = {} }) {
 }
 
 const page = (ctx, operation, data = {}) => ctx.callPage(layoutPage, { operation, data }, { timeoutMs: 20000 });
+const savedIdentity = (row, prefix) => ({ [`${prefix}_layout_id`]: row?.layout_id, [`${prefix}_numeric_id`]: row?.numeric_id, [`${prefix}_name`]: row?.name });
+const unavailableSavedVerification = () => ({ available: false, saved_configuration_verified: false,
+  source_unchanged_since_baseline: null, source_stability_unverified: true,
+  drawings_covered: false, full_fidelity_verified: false,
+  saved_drawings_inventory_verification: { available: false, inventory_verified: false, contents_verified: false, reason: 'saved_drawing_inventory_unavailable_or_unverified' },
+  reason: 'saved_payload_unavailable_or_unverified', verification_scope: 'Saved layout-content verification unavailable; drawing state is separate and no full-fidelity claim is made.' });
+async function savedFingerprint(ctx, row) {
+  try {
+    const result = await page(ctx, 'saved_fingerprint', savedIdentity(row, 'source'));
+    if (result?.available !== true || result.layout_id !== row?.layout_id || !/^[a-f0-9]{64}$/.test(result.content_sha256 ?? '') || !/^[a-f0-9]{64}$/.test(result.study_meta_sha256 ?? '')) throw new Error('unverified');
+    return result;
+  }
+  catch { return { available: false, reason: 'saved_source_baseline_unavailable' }; }
+}
+async function savedComparison(ctx, source, copy, baseline) {
+  try {
+    const result = await page(ctx, 'compare_saved', { ...savedIdentity(source, 'source'), ...savedIdentity(copy, 'copy'), source_baseline: baseline });
+    if (result?.available !== true || typeof result.saved_configuration_verified !== 'boolean' || ![true, false, null].includes(result.source_unchanged_since_baseline)) throw new Error('unverified');
+    return result;
+  }
+  catch { return unavailableSavedVerification(); }
+}
 const targetIdOf = item => typeof item === 'string' ? item : item?.targetId ?? item?.target_id ?? item?.id;
 const targetsArray = rows => Array.isArray(rows) ? rows : rows?.targets ?? [];
 const targetMatches = (item, id) => {
@@ -163,17 +380,41 @@ const targetMatches = (item, id) => {
   catch { return false; }
 };
 
-export async function findLayoutContext(ctx, id, { open = true } = {}) {
-  const targets = targetsArray(await ctx.browser.listTargets());
-  const match = targets.find(target => targetMatches(target, id));
-  let targetId = targetIdOf(match);
-  if (!targetId && open) targetId = targetIdOf(await ctx.browser.openTarget(chartUrl(id)));
+export async function findLayoutContext(ctx, id, { open = true, preferredTargetId = null, beforeOpen, waitForExisting = false } = {}) {
+  const selectTarget = async () => {
+    const matches = targetsArray(await ctx.browser.listTargets()).filter(target => targetMatches(target, id));
+    const preferred = preferredTargetId && matches.find(target => targetIdOf(target) === preferredTargetId);
+    if (preferred) return targetIdOf(preferred);
+    if (matches.length > 1) throw new ToolError('AMBIGUOUS_LAYOUT_TARGET', 'Multiple tabs show this exact saved layout; select a previously confirmed target before continuing.', { layout_id: id, target_count: matches.length });
+    return targetIdOf(matches[0]);
+  };
+  let targetId = await selectTarget();
+  if (!targetId && waitForExisting) targetId = await ctx.poll(selectTarget, value => typeof value === 'string' && value.length > 0,
+    { timeoutMs: 45000, intervalMs: 500, description: 'reconcile an earlier tab-open intent without opening another tab' });
+  if (!targetId && open) {
+    if (beforeOpen) await beforeOpen();
+    targetId = targetIdOf(await ctx.browser.openTarget(chartUrl(id), { sourceTargetId: ctx.targetId }));
+  }
   if (!targetId) throw new ToolError('LAYOUT_NOT_OPEN', 'No browser tab for this saved layout was found.', { layout_id: id });
   const next = await ctx.forTarget(targetId, id);
   await ctx.poll(async () => {
     try { return await page(next, 'get'); } catch { return null; }
   }, row => row?.layout_id === id && !!row.symbol && !!row.resolution,
   { timeoutMs: 45000, intervalMs: 500, description: 'wait for exact saved layout to load' });
+  return next;
+}
+
+async function findCopyContext(ctx, id, key, record) {
+  const next = await findLayoutContext(ctx, id, {
+    open: record.tab_open_intent !== true, waitForExisting: record.tab_open_intent === true,
+    preferredTargetId: record.target_id ?? null,
+    beforeOpen: async () => {
+      record.tab_open_intent = true;
+      await ctx.checkpoint(key, { ...record, stage: 'tab_open_submitted' });
+    },
+  });
+  record.target_id = next.targetId;
+  await ctx.checkpoint(key, { ...record, stage: 'created' });
   return next;
 }
 
@@ -187,7 +428,7 @@ const comparisonSummary = value => ({
   sha256: digest({ value }),
 });
 const comparisonField = field => {
-  if (typeof field === 'string' && field.length <= 160 && /^(?:symbol|resolution|chart_type|pane_count|layout_code|active_index|panes\.\d+(?:\.(?:symbol|resolution|chart_type|facade|study_count|studies|drawings)|\.studies\.\d+(?:\.(?:name|inputs|properties))?)?)$/.test(field)) return field;
+  if (typeof field === 'string' && field.length <= 160 && /^(?:symbol|resolution|chart_type|pane_count|layout_code|active_index|panes\.\d+(?:\.(?:symbol|resolution|chart_type|facade|study_count|studies|drawings)(?:\.(?:native_points|representation))?|\.studies\.\d+(?:\.(?:name|inputs|properties|viewport_inputs|viewport_inputs_metadata))?)?)$/.test(field)) return field;
   const namedStudy = typeof field === 'string' && /^panes\.(\d{1,12})\.study\.(.*)\.(inputs|properties)$/s.exec(field);
   if (namedStudy) return `panes.${namedStudy[1]}.study[sha256:${digest(namedStudy[2]).slice(0, 16)}].${namedStudy[3]}`;
   return `unverified[sha256:${digest({ field }).slice(0, 16)}]`;
@@ -196,6 +437,9 @@ const COMPARISON_RECEIPT_LIMIT = 100;
 
 export function compareLayoutSnapshots(source, destination) {
   const mismatches = [];
+  const viewportComparisons = [];
+  const viewportCounts = { equal: 0, different: 0, unverified: 0 };
+  const drawingComparisons = [];
   let mismatchCount = 0;
   const mismatch = (field, a, b) => {
     mismatchCount++;
@@ -224,8 +468,23 @@ export function compareLayoutSnapshots(source, destination) {
       check(`panes.${index}.studies.${n}.name`, x.name, y.name);
       check(`panes.${index}.studies.${n}.inputs`, normalInputs(x.inputs), normalInputs(y.inputs));
       check(`panes.${index}.studies.${n}.properties`, x.properties, y.properties, false);
+      if ('viewport_inputs' in x || 'viewport_inputs' in y) {
+        const field = `panes.${index}.studies.${n}.viewport_inputs`;
+        const verified = x.viewport_inputs_metadata_verified === true && y.viewport_inputs_metadata_verified === true && Array.isArray(x.viewport_inputs) && Array.isArray(y.viewport_inputs);
+        const status = !verified ? 'unverified' : canonical(normalInputs(x.viewport_inputs)) === canonical(normalInputs(y.viewport_inputs)) ? 'equal' : 'different';
+        viewportCounts[status]++;
+        if (viewportComparisons.length < COMPARISON_RECEIPT_LIMIT) viewportComparisons.push({ field, status });
+        if (!verified) unverified.push(`panes.${index}.studies.${n}.viewport_inputs_metadata`);
+      }
     }
-    check(`panes.${index}.drawings`, a.drawings, b.drawings, false);
+    const representation = value => value == null ? null : ['native_normalized', 'public_time'].includes(value) ? value : 'unknown';
+    const sourceRepresentation = representation(a.drawing_points_representation), destinationRepresentation = representation(b.drawing_points_representation);
+    const representationUnknown = sourceRepresentation === 'unknown' || destinationRepresentation === 'unknown' || (sourceRepresentation !== null || destinationRepresentation !== null) && sourceRepresentation !== destinationRepresentation;
+    if (representationUnknown) unverified.push(`panes.${index}.drawings.representation`);
+    else check(`panes.${index}.drawings`, a.drawings, b.drawings, false);
+    if (drawingComparisons.length < COMPARISON_RECEIPT_LIMIT) drawingComparisons.push({ field: `panes.${index}.drawings`,
+      source_representation: sourceRepresentation, destination_representation: destinationRepresentation,
+      comparable: !representationUnknown && a.drawings !== null && a.drawings !== undefined && b.drawings !== null && b.drawings !== undefined });
   }
   const criticalMissing = unverified.filter(field => !/\.properties$|\.drawings$/.test(field));
   const safeUnverified = [...new Set(unverified.map(comparisonField))];
@@ -239,7 +498,11 @@ export function compareLayoutSnapshots(source, destination) {
     unverified_fields: safeUnverified.slice(0, COMPARISON_RECEIPT_LIMIT), unverified_field_count: safeUnverified.length,
     unverified_fields_truncated: safeUnverified.length > COMPARISON_RECEIPT_LIMIT,
     comparison_values: 'sha256 summaries only; complete values were compared',
-    checked: ['layout independence separately', 'symbols', 'resolutions', 'chart type', 'pane count', 'study names', 'study inputs', 'readable properties and drawings'] };
+    viewport_inputs_comparison: { ...viewportCounts, details: viewportComparisons, truncated: Object.values(viewportCounts).reduce((sum, count) => sum + count, 0) > viewportComparisons.length,
+      scope: 'Only exact first_visible_bar_time/last_visible_bar_time IDs with verified hidden integer metadata are separated from user configuration.' },
+    drawings_comparison: drawingComparisons,
+    drawings_scope: 'Visible runtime drawing inventory only; saved layout-content proof does not cover separate line-tool storage or the complete off-symbol archive.',
+    checked: ['layout independence separately', 'symbols', 'resolutions', 'chart type', 'pane count', 'study names', 'study inputs', 'viewport inputs separately', 'readable properties and drawings in matching coordinate representations'] };
 }
 
 export async function saveLayout(args, ctx) {
@@ -259,23 +522,31 @@ export async function saveLayout(args, ctx) {
     verified_from: 'native save service plus independent saved-layout list' };
 }
 
-const copyReconciliationError = (copyId, sourceId, error) => new ToolError('COPY_CREATED_UNVERIFIED',
+const copyReconciliationError = (copyId, sourceId, error, savedVerification = unavailableSavedVerification()) => new ToolError('COPY_CREATED_UNVERIFIED',
   'The saved copy was created, but opening or verifying it failed. Reconcile this exact layout ID; retry only with the same idempotency key.',
   { created: true, source_layout_id: sourceId, layout_id: copyId, expected_layout_id: copyId,
     url: chartUrl(copyId), chart_verified: false, retry_with_same_key: true,
-    verification_error: error?.code ?? 'VERIFICATION_FAILED' });
+    verification_error: error?.code ?? 'VERIFICATION_FAILED', saved_configuration_verification: savedVerification,
+    saved_drawings_inventory_verification: savedVerification.saved_drawings_inventory_verification,
+    source_full_content_unchanged_verified: null,
+    source_saved_layout_content_unchanged_verified: savedVerification.source_unchanged_since_baseline });
 
-async function completeCopy(ctx, source, copy, savedBefore, key, requestHash) {
+async function completeCopy(ctx, source, copy, savedBefore, key, requestHash, sourceBaseline, originalFingerprint) {
   if (!copy.layout_id || copy.layout_id === source.layout_id) throw new ToolError('COPY_NOT_INDEPENDENT', 'Copy does not have a distinct saved layout ID.');
   const sourceSaved = savedBefore.find(row => row.layout_id === source.layout_id);
   if (!sourceSaved?.numeric_id || !copy.numeric_id || sourceSaved.numeric_id === copy.numeric_id) throw new ToolError('COPY_NOT_INDEPENDENT', 'Independent numeric saved IDs could not be verified.');
+  const sourceRecord = originalFingerprint ?? { source_fingerprint: sourceConfigurationFingerprint(source.panes), source_fingerprint_version: SOURCE_FINGERPRINT_VERSION };
+  const copyRecord = { stage: 'created', request_hash: requestHash, source_layout_id: source.layout_id, copy_layout_id: copy.layout_id,
+    ...sourceRecord, source_saved_baseline: sourceBaseline, tab_open_intent: sourceRecord.tab_open_intent === true || sourceRecord.clone_open_protocol !== DIRECT_CLONE_PROTOCOL };
+  let savedVerification = unavailableSavedVerification();
   try {
     // Persist the independently observed identity before any fallible tab operation,
     // including recovery from a prior submission whose acknowledgement was lost.
-    await ctx.checkpoint(key, { stage: 'created', request_hash: requestHash,
-      source_layout_id: source.layout_id, copy_layout_id: copy.layout_id,
-      source_fingerprint: digest(source.panes) });
-    const next = await findLayoutContext(ctx, copy.layout_id);
+    await ctx.checkpoint(key, copyRecord);
+    savedVerification = await savedComparison(ctx, sourceSaved, copy, sourceBaseline);
+    copyRecord.saved_configuration_verification = savedVerification;
+    await ctx.checkpoint(key, copyRecord);
+    const next = await findCopyContext(ctx, copy.layout_id, key, copyRecord);
     let destination;
     let verification;
     try {
@@ -293,21 +564,34 @@ async function completeCopy(ctx, source, copy, savedBefore, key, requestHash) {
       try { destination = await page(next, 'snapshot'); verification = compareLayoutSnapshots(source, destination); }
       catch { verification = { chart_verified: false, full_fidelity_verified: false, mismatches: [], unverified_fields: ['destination chart state'], reason: error.code ?? 'READ_FAILED' }; }
     }
+    const sourceStillMatches = sourceFingerprintMatch(sourceRecord, source.panes);
+    if (sourceStillMatches !== true) {
+      verification.chart_verified = false; verification.full_fidelity_verified = false;
+      verification.unverified_fields.push(sourceFingerprintIssue(sourceRecord, sourceStillMatches));
+    }
     const finalList = await page(next, 'list');
     const originalBefore = savedBefore.find(row => row.layout_id === source.layout_id);
     const originalAfter = finalList.find(row => row.layout_id === source.layout_id);
     const fields = row => row && { layout_id: row.layout_id, name: row.name, symbol: row.symbol, resolution: row.resolution };
     const sourceMetadataUnchanged = originalBefore ? canonical(fields(originalBefore)) === canonical(fields(originalAfter)) : null;
+    // Saved copy content may become readable only after its chart has loaded.
+    // Re-read both saved objects at the finish boundary; this also checks that
+    // the source has not changed while the destination was opening.
+    savedVerification = await savedComparison(ctx, sourceSaved, copy, sourceBaseline);
     const result = { created: true, independent_layout_verified: true, source_layout_id: source.layout_id,
       layout_id: copy.layout_id, name: copy.name, url: chartUrl(copy.layout_id),
       target_id: next.targetId, expected_layout_id: copy.layout_id,
       chart_verified: verification.chart_verified, verification, source_metadata_unchanged: sourceMetadataUnchanged,
-      source_full_content_unchanged_verified: null };
-    await ctx.checkpoint(key, { stage: verification.chart_verified ? 'verified' : 'created_needs_verification', request_hash: requestHash,
+      saved_configuration_verification: savedVerification,
+      saved_drawings_inventory_verification: savedVerification.saved_drawings_inventory_verification,
+      source_full_content_unchanged_verified: null,
+      source_saved_layout_content_unchanged_verified: savedVerification.source_unchanged_since_baseline };
+    await ctx.checkpoint(key, { ...copyRecord, stage: verification.chart_verified ? 'verified' : 'created_needs_verification', request_hash: requestHash,
       source_layout_id: source.layout_id, copy_layout_id: copy.layout_id, target_id: next.targetId,
-      source_fingerprint: digest(source.panes), result: { ...result, verification: { ...verification, mismatches: verification.mismatches?.map(item => ({ field: item.field })) } } });
+      ...sourceRecord, source_saved_baseline: sourceBaseline, saved_configuration_verification: savedVerification,
+      result: { ...result, verification: { ...verification, mismatches: verification.mismatches?.map(item => ({ field: item.field })) } } });
     return result;
-  } catch (error) { throw copyReconciliationError(copy.layout_id, source.layout_id, error); }
+  } catch (error) { throw copyReconciliationError(copy.layout_id, source.layout_id, error, savedVerification); }
 }
 
 export async function copyLayout(args, ctx) {
@@ -317,34 +601,47 @@ export async function copyLayout(args, ctx) {
   if (prior && prior.request_hash !== requestHash) throw new ToolError('IDEMPOTENCY_CONFLICT', 'This idempotency key belongs to another copy request.');
   if (prior?.copy_layout_id) {
     if (prior.copy_layout_id === prior.source_layout_id) throw new ToolError('COPY_NOT_INDEPENDENT', 'Recorded copy ID is identical to its source.');
+    let savedVerification = unavailableSavedVerification();
     try {
-      const next = await findLayoutContext(ctx, prior.copy_layout_id);
-      const listed = await page(next, 'list');
+      const listed = await page(ctx, 'list');
       const savedCopy = listed.find(row => row.layout_id === prior.copy_layout_id);
       const savedSource = listed.find(row => row.layout_id === prior.source_layout_id);
       if (!savedCopy) throw new ToolError('PREVIOUS_COPY_MISSING', 'The earlier copy no longer exists. Use a new operation key only if a new copy is intended.');
       if (!savedSource?.numeric_id || !savedCopy.numeric_id || savedSource.numeric_id === savedCopy.numeric_id) throw new ToolError('COPY_NOT_INDEPENDENT', 'Distinct source and destination saved numeric IDs could not be re-established.');
-      const sourceCtx = await findLayoutContext(ctx, prior.source_layout_id);
+      savedVerification = await savedComparison(ctx, savedSource, savedCopy, prior.source_saved_baseline);
+      // Old checkpoints did not record whether a tab-open was submitted. They
+      // cannot authorize a second automatic open after an uncertain outcome.
+      const copyRecord = { ...prior, tab_open_intent: typeof prior.tab_open_intent === 'boolean' ? prior.tab_open_intent : true,
+        saved_configuration_verification: savedVerification };
+      await ctx.checkpoint(key, copyRecord);
+      const next = await findCopyContext(ctx, prior.copy_layout_id, key, copyRecord);
+      const sourceCtx = await findLayoutContext(ctx, prior.source_layout_id, { open: false, preferredTargetId: ctx.targetId });
       const currentSource = await page(sourceCtx, 'snapshot');
       const currentDestination = await page(next, 'snapshot');
       const verification = compareLayoutSnapshots(currentSource, currentDestination);
-      const sourceStillMatches = !prior.source_fingerprint || prior.source_fingerprint === digest(currentSource.panes);
-      if (!sourceStillMatches) {
+      const sourceStillMatches = sourceFingerprintMatch(prior, currentSource.panes);
+      if (sourceStillMatches !== true) {
         verification.chart_verified = false;
         verification.full_fidelity_verified = false;
-        verification.unverified_fields.push('source changed since clone submission');
+        verification.unverified_fields.push(sourceFingerprintIssue(prior, sourceStillMatches));
       }
+      savedVerification = await savedComparison(ctx, savedSource, savedCopy, prior.source_saved_baseline);
       const result = { created: true, independent_layout_verified: true, source_layout_id: prior.source_layout_id,
         layout_id: prior.copy_layout_id, name: savedCopy.name, url: chartUrl(prior.copy_layout_id),
         replayed: true, chart_verified: verification.chart_verified, verification,
         verification_scope: 'Current source and destination comparison; no additional clone submitted.',
-        target_id: next.targetId, expected_layout_id: prior.copy_layout_id, source_full_content_unchanged_verified: null };
-      await ctx.checkpoint(key, { ...prior, stage: verification.chart_verified ? 'verified' : 'created_needs_verification',
-        target_id: next.targetId, result: { ...result, verification: { ...verification, mismatches: verification.mismatches.map(item => ({ field: item.field })) } } });
+        target_id: next.targetId, expected_layout_id: prior.copy_layout_id,
+        saved_configuration_verification: savedVerification,
+        saved_drawings_inventory_verification: savedVerification.saved_drawings_inventory_verification,
+        source_full_content_unchanged_verified: null,
+        source_saved_layout_content_unchanged_verified: savedVerification.source_unchanged_since_baseline };
+      await ctx.checkpoint(key, { ...copyRecord, stage: verification.chart_verified ? 'verified' : 'created_needs_verification',
+        target_id: next.targetId, saved_configuration_verification: savedVerification,
+        result: { ...result, verification: { ...verification, mismatches: verification.mismatches.map(item => ({ field: item.field })) } } });
       return result;
     } catch (error) {
       if (['PREVIOUS_COPY_MISSING', 'COPY_NOT_INDEPENDENT'].includes(error.code)) throw error;
-      throw copyReconciliationError(prior.copy_layout_id, prior.source_layout_id, error);
+      throw copyReconciliationError(prior.copy_layout_id, prior.source_layout_id, error, savedVerification);
     }
   }
   let source = await page(ctx, 'snapshot');
@@ -358,20 +655,32 @@ export async function copyLayout(args, ctx) {
   const savedBefore = await page(ctx, 'list');
   if (!savedBefore.find(row => row.layout_id === source.layout_id)?.numeric_id) throw new ToolError('SOURCE_SAVED_ID_UNAVAILABLE', 'The exact source must be present in the saved-layout list with a stable numeric ID before copying.');
   if (prior?.stage === 'submitted') {
-    const matches = savedBefore.filter(row => row.name === args.name && !prior.known_ids.includes(row.numeric_id));
-    if (matches.length === 1) return completeCopy(ctx, source, matches[0], savedBefore, key, requestHash);
+    const matches = savedBefore.filter(row => row.name === args.name && !prior.known_ids.includes(row.numeric_id) && (!prior.submitted_copy_layout_id || row.layout_id === prior.submitted_copy_layout_id));
+    if (matches.length === 1) return completeCopy(ctx, source, matches[0], savedBefore, key, requestHash, prior.source_saved_baseline,
+      { source_fingerprint: prior.source_fingerprint, source_fingerprint_version: prior.source_fingerprint_version, clone_open_protocol: prior.clone_open_protocol, tab_open_intent: prior.tab_open_intent });
     throw new ToolError('UNCERTAIN_MUTATION', 'An earlier clone was submitted; it will not be submitted again automatically. Reconcile the saved-layout list.', { idempotency_key: args.idempotency_key, matches: matches.map(row => row.layout_id) });
   }
   if (savedBefore.some(row => row.name === args.name)) throw new ToolError('DUPLICATE_LAYOUT_NAME', 'A saved layout already has this name. Choose a unique destination name.');
   const knownIds = savedBefore.map(row => row.numeric_id);
+  const sourceBaseline = await savedFingerprint(ctx, savedBefore.find(row => row.layout_id === source.layout_id));
+  const desktopDirect = typeof ctx.browser.isDesktop === 'function' && await ctx.browser.isDesktop() === true;
+  const cloneOpenProtocol = desktopDirect ? DIRECT_CLONE_PROTOCOL : 'native-controller-autoopen-or-unknown-v1';
   await ctx.assertLayout(source.layout_id);
-  await ctx.checkpoint(key, { stage: 'submitted', request_hash: requestHash, known_ids: knownIds, source_layout_id: source.layout_id, source_fingerprint: digest(source.panes) });
-  let submitError = null;
-  try { await page(ctx, 'copy', { name: args.name }); } catch (error) { submitError = error.code ?? 'BROWSER_CONTEXT_CHANGED'; }
+  await ctx.checkpoint(key, { stage: 'submitted', request_hash: requestHash, known_ids: knownIds, source_layout_id: source.layout_id, source_fingerprint: sourceConfigurationFingerprint(source.panes), source_fingerprint_version: SOURCE_FINGERPRINT_VERSION, source_saved_baseline: sourceBaseline, clone_open_protocol: cloneOpenProtocol });
+  let submitError = null, submittedCopyId = null;
+  try {
+    const submission = await page(ctx, 'copy', { name: args.name, ...(desktopDirect ? { desktop_direct: true, source_layout_id: source.layout_id } : {}) });
+    if (desktopDirect && typeof submission?.copy_layout_id === 'string' && /^[A-Za-z0-9_-]{6,64}$/.test(submission.copy_layout_id) && submission.copy_layout_id !== source.layout_id) {
+      submittedCopyId = submission.copy_layout_id;
+      await ctx.checkpoint(key, { stage: 'submitted', request_hash: requestHash, known_ids: knownIds, source_layout_id: source.layout_id,
+        source_fingerprint: sourceConfigurationFingerprint(source.panes), source_fingerprint_version: SOURCE_FINGERPRINT_VERSION,
+        source_saved_baseline: sourceBaseline, submitted_copy_layout_id: submittedCopyId, clone_open_protocol: cloneOpenProtocol });
+    }
+  } catch (error) { submitError = error.code ?? 'BROWSER_CONTEXT_CHANGED'; }
   let copy;
   try {
     const matches = await ctx.poll(async () => {
-      try { return (await page(ctx, 'list')).filter(row => !knownIds.includes(row.numeric_id) && row.name === args.name); }
+      try { return (await page(ctx, 'list')).filter(row => !knownIds.includes(row.numeric_id) && row.name === args.name && (!submittedCopyId || row.layout_id === submittedCopyId)); }
       catch { return []; }
     }, rows => rows.length > 0, { timeoutMs: args.timeout_ms ?? 120000, intervalMs: 700, description: 'confirm a new saved layout ID' });
     if (matches.length !== 1) throw new ToolError('AMBIGUOUS_COPY', 'Multiple new layouts have the requested name. No destination was selected.', { layout_ids: matches.map(row => row.layout_id) });
@@ -379,8 +688,10 @@ export async function copyLayout(args, ctx) {
   } catch (error) {
     throw new ToolError('UNCERTAIN_MUTATION', 'The clone submission could not be reconciled. Do not repeat it with a different key before inspecting saved layouts.', { submission_error: submitError, verification_error: error.code ?? 'TIMEOUT', operation_key: args.idempotency_key });
   }
-  await ctx.checkpoint(key, { stage: 'created', request_hash: requestHash, source_layout_id: source.layout_id, copy_layout_id: copy.layout_id, known_ids: knownIds, source_fingerprint: digest(source.panes) });
-  return completeCopy(ctx, source, copy, savedBefore, key, requestHash);
+  await ctx.checkpoint(key, { stage: 'created', request_hash: requestHash, source_layout_id: source.layout_id, copy_layout_id: copy.layout_id, known_ids: knownIds, source_fingerprint: sourceConfigurationFingerprint(source.panes), source_fingerprint_version: SOURCE_FINGERPRINT_VERSION, source_saved_baseline: sourceBaseline,
+    clone_open_protocol: cloneOpenProtocol, tab_open_intent: cloneOpenProtocol !== DIRECT_CLONE_PROTOCOL });
+  return completeCopy(ctx, source, copy, savedBefore, key, requestHash, sourceBaseline,
+    { source_fingerprint: sourceConfigurationFingerprint(source.panes), source_fingerprint_version: SOURCE_FINGERPRINT_VERSION, clone_open_protocol: cloneOpenProtocol });
 }
 
 const tools = [
